@@ -9,12 +9,12 @@ def vgg_block(num_convs,in_channels,out_channels):
         in_channels=out_channels
     layers.append(nn.MaxPool2d (kernel_size=2,stride=2))
     return nn.Sequential(*layers)
-
+#vgg11 结构
 conv_arch=((1,64),(1,128),(2,256),(2,512),(2,512))
 
 def vgg(conv_arch):
     conv_blks=[]
-    in_channels=1
+    in_channels=3
     for (num_convs,out_channels) in conv_arch:
         conv_blks.append(vgg_block(num_convs,in_channels,out_channels))
         in_channels=out_channels
@@ -24,3 +24,10 @@ def vgg(conv_arch):
                          nn.Linear(4096,10))
 
 net =vgg(conv_arch)
+
+
+
+
+import torch
+from torch import nn 
+from torchvision.models import VGG11_Weights
