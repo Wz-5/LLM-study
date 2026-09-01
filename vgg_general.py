@@ -1,20 +1,4 @@
-"""可切换 VGG-11/13/16/19 的通用实现。
-
-示例：
-    # ImageNet 预训练 VGG-11，修改成猫狗二分类
-    model = build_vgg(depth=11, num_classes=2, pretrained=True)
-
-    # ImageNet 预训练 VGG-16-BN，修改成十分类
-    model = build_vgg(
-        depth=16,
-        num_classes=10,
-        batch_norm=True,
-        pretrained=True,
-    )
-
-    # 不加载预训练权重的 VGG-19
-    model = build_vgg(depth=19, num_classes=10, pretrained=False)
-"""
+"""可切换 VGG-11/13/16/19 的通用实现"""
 
 from __future__ import annotations
 
@@ -89,11 +73,8 @@ def make_features(
     in_channels: int = 3,
 ) -> nn.Sequential:
     """根据配置表构造 VGG 的卷积特征提取部分。
-
-    所有层直接放在同一个 Sequential 中，使参数名称与 torchvision
-    官方模型保持一致，例如 features.0.weight。
     """
-    layers: List[nn.Module] = []
+    layers = []
 
     for value in config:
         if value == "M":
@@ -130,11 +111,7 @@ def make_features(
 
 
 class VGG(nn.Module):
-    """通用 VGG 网络。
-
-    属性名称 features、avgpool、classifier 与 torchvision 官方实现一致，
-    因此只要卷积配置相同，就可以严格加载相应的官方 state_dict。
-    """
+    """通用 VGG 网络。"""
 
     def __init__(
         self,
@@ -186,25 +163,15 @@ class VGG(nn.Module):
 
 
 def build_vgg(
-    depth: int = 11,
-    num_classes: int = 1000,
-    batch_norm: bool = False,
-    pretrained: bool = False,
-    freeze_features: bool = False,
-    in_channels: int = 3,
-    dropout: float = 0.5,
+    depth = 11,
+    num_classes = 1000,
+    batch_norm= False,
+    pretrained = False,
+    freeze_features = False,
+    in_channels= 3,
+    dropout= 0.5,
 ) -> VGG:
-    """通过少量参数构建不同版本的 VGG。
-
-    Args:
-        depth: VGG 深度，只能是 11、13、16、19。
-        num_classes: 下游任务类别数，例如猫狗分类为 2。
-        batch_norm: 是否在每个卷积层后使用 BatchNorm。
-        pretrained: 是否加载对应的 torchvision ImageNet 官方权重。
-        freeze_features: 是否冻结卷积特征提取层。
-        in_channels: 输入通道数；加载官方权重时必须为 3。
-        dropout: 分类器的 Dropout 概率。
-    """
+    """通过少量参数构建不同版本的 VGG。"""
     if depth not in VGG_CONFIGS:
         raise ValueError(
             f"不支持 VGG-{depth}，可选深度为 {tuple(VGG_CONFIGS)}"
@@ -264,7 +231,7 @@ def count_parameters(model: nn.Module) -> Tuple[int, int]:
 
 
 if __name__ == "__main__":
-    # 日常使用时，通常只需要修改下面这些参数。
+    # 日常使用修改下面这些参数。
     DEPTH = 11
     NUM_CLASSES = 2
     BATCH_NORM = False
@@ -284,7 +251,7 @@ if __name__ == "__main__":
     print(f"总参数量：{total_parameters:,}")
     print(f"可训练参数量：{trainable_parameters:,}")
 
-    # 用较小的 batch 验证输出尺寸。正式训练通常使用 224×224 输入。
+    # 用较小的 batch 验证输出尺寸
     sample = torch.randn(1, 3, 224, 224)
     output = network(sample)
     print("输出尺寸：", output.shape)
