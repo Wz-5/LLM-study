@@ -1,12 +1,4 @@
-"""可迁移的图片分类数据加载模块。
 
-核心设计：
-1. discover_labeled_images 负责把不同来源的数据转换成统一的 (路径, 标签)；
-2. stratified_split 负责按类别进行可复现的训练/验证/测试划分；
-3. ImageListDataset 和 build_dataloaders 与具体数据来源无关。
-
-Dogs vs. Cats 用法见文件底部的 main 示例。
-"""
 
 from __future__ import annotations
 
