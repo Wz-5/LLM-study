@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, List, Sequence, Tuple, Union
 
 import torch
@@ -170,6 +171,8 @@ def build_vgg(
     freeze_features = False,
     in_channels= 3,
     dropout= 0.5,
+    weights_path: str | Path | None = None,
+    init_weights: bool = True,
 ) -> VGG:
     """通过少量参数构建不同版本的 VGG。"""
     if depth not in VGG_CONFIGS:
@@ -183,6 +186,9 @@ def build_vgg(
             "灰度图片请在数据预处理阶段转换成 RGB"
         )
 
+    if weights_path is not None and not pretrained:
+        raise ValueError("使用官方权重文件时，请设置 pretrained=True")
+
     # 官方预训练权重的分类器输出为 ImageNet 1000 类。
     initial_num_classes = 1000 if pretrained else num_classes
     model = VGG(
@@ -193,15 +199,17 @@ def build_vgg(
         ),
         num_classes=initial_num_classes,
         dropout=dropout,
-        init_weights=not pretrained,
+        init_weights=init_weights and not pretrained,
     )
 
     if pretrained:
         weights = OFFICIAL_WEIGHTS[(depth, batch_norm)]
-        state_dict = weights.get_state_dict(
-            progress=True,
-            check_hash=True,
-        )
+        if weights_path is None:
+            # 首次下载，之后使用缓存。
+            state_dict = weights.get_state_dict(progress=True, check_hash=True)
+        else:
+            # 离线加载官方的原始 state_dict。
+            state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
 
         # strict=True：参数名称和张量尺寸必须全部匹配。
         model.load_state_dict(state_dict, strict=True)

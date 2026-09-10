@@ -1,0 +1,2 @@
+# 已有可用的 torch、torchvision、Pillow；这里只补日志依赖。
+tensorboard>=2.14

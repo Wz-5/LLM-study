@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import random
+import hashlib
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -161,6 +163,109 @@ def build_eval_transform(image_size: int = 224) -> transforms.Compose:
             transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
         ]
     )
+
+
+def file_sha256(path: str | Path) -> str:
+    """记录文件内容，防止训练后悄悄换数据。"""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def save_split_manifest(
+    image_root: str | Path,
+    manifest_path: str | Path,
+    val_ratio: float = 0.1,
+    test_ratio: float = 0.1,
+    seed: int = 42,
+) -> dict:
+    """检查图片、去除完全重复文件、固定划分。"""
+    root = Path(image_root).resolve()
+    destination = Path(manifest_path)
+    if destination.exists():
+        raise FileExistsError(f"划分已存在，请复用或换一个路径：{destination}")
+    if val_ratio <= 0 or test_ratio <= 0 or val_ratio + test_ratio >= 1:
+        raise ValueError("验证和测试比例必须大于0，且两者之和小于1")
+
+    records = discover_labeled_images(root, dogs_vs_cats_label)
+    valid, excluded, hashes, seen = [], [], {}, {}
+    for index, (path, label) in enumerate(records, 1):
+        relative = path.relative_to(root).as_posix()
+        try:
+            with Image.open(path) as image:
+                image.convert("RGB").load()  # 实际解码，提前发现坏图。
+        except (OSError, ValueError) as error:
+            excluded.append({"path": relative, "reason": str(error)})
+            continue
+
+        digest = file_sha256(path)
+        if digest in seen:
+            previous_path, previous_label = seen[digest]
+            if label != previous_label:
+                raise ValueError(f"相同图片的标签冲突：{path} 与 {previous_path}")
+            excluded.append({"path": relative, "reason": "完全重复图片"})
+            continue
+        seen[digest] = (path, label)
+        hashes[path] = digest
+        valid.append((path, label))
+        if index % 1000 == 0:
+            print(f"已检查 {index}/{len(records)} 张图片", flush=True)
+
+    splits = stratified_split(valid, val_ratio, test_ratio, seed)
+    manifest = {
+        "version": 1,
+        "seed": seed,
+        "val_ratio": val_ratio,
+        "test_ratio": test_ratio,
+        "class_to_idx": {"cat": 0, "dog": 1},
+        "excluded": excluded,
+        "splits": {},
+    }
+    for name, split in zip(("train", "val", "test"), splits):
+        if {label for _, label in split} != {"cat", "dog"}:
+            raise ValueError(f"{name} 必须包含猫和狗，请增加图片数量")
+        manifest["splits"][name] = [
+            {"path": p.relative_to(root).as_posix(), "label": label, "sha256": hashes[p]}
+            for p, label in split
+        ]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("x", encoding="utf-8") as stream:
+        json.dump(manifest, stream, ensure_ascii=False, indent=2)
+    return manifest
+
+
+def load_split_manifest(
+    image_root: str | Path,
+    manifest_path: str | Path,
+) -> Tuple[dict, Dict[str, List[ImageRecord]]]:
+    """复用原划分，并检查文件是否被替换。"""
+    root = Path(image_root).resolve()
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    if manifest.get("version") != 1 or manifest.get("class_to_idx") != {"cat": 0, "dog": 1}:
+        raise ValueError("不支持的划分文件或类别映射")
+    seen_paths, seen_hashes, splits = set(), set(), {}
+    for name in ("train", "val", "test"):
+        records = []
+        for item in manifest["splits"][name]:
+            path = (root / item["path"]).resolve()
+            if not path.is_relative_to(root):
+                raise ValueError(f"图片路径超出数据目录：{path}")
+            if item["label"] not in manifest["class_to_idx"]:
+                raise ValueError(f"未知标签：{item['label']}")
+            digest = file_sha256(path)
+            if digest != item["sha256"]:
+                raise ValueError(f"图片内容已变化，请检查：{path}")
+            if path in seen_paths or digest in seen_hashes:
+                raise ValueError(f"划分中存在重复图片：{path}")
+            seen_paths.add(path)
+            seen_hashes.add(digest)
+            records.append((path, item["label"]))
+        if {label for _, label in records} != {"cat", "dog"}:
+            raise ValueError(f"{name} 必须同时包含猫和狗")
+        splits[name] = records
+    return manifest, splits
 
 
 @dataclass

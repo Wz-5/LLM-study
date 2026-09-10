@@ -1,0 +1,5 @@
+# VGG 训练产物和本地数据。
+artifacts/vgg/
+runs/
+data/dogs-vs-cats/
+VGG/__pycache__/
