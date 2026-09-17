@@ -44,7 +44,7 @@ def dogs_vs_cats_label(path: Path) -> str:
 
 
 def parent_folder_label(path: Path) -> str:
-    """适配 ImageFolder 风格：root/cat/a.jpg -> cat。"""
+    """适配 ImageFolder 风格root/cat/a.jpg -> cat。"""
     return path.parent.name
 
 
@@ -140,29 +140,58 @@ class ImageListDataset(Dataset):
         return image, label
 
 
-def build_train_transform(image_size: int = 224) -> transforms.Compose:
+def build_train_transform(
+    image_size: int = 224, *, mean=IMAGENET_MEAN, std=IMAGENET_STD,
+    interpolation=transforms.InterpolationMode.BILINEAR, antialias=True,
+) -> transforms.Compose:
     """训练集：随机裁剪和翻转用于数据增强。"""
     return transforms.Compose(
         [
-            transforms.RandomResizedCrop(image_size, scale=(0.7, 1.0)),
+            transforms.RandomResizedCrop(image_size, scale=(0.7, 1.0),
+                                         interpolation=interpolation, antialias=antialias),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+            transforms.Normalize(mean, std),
         ]
     )
 
 
-def build_eval_transform(image_size: int = 224) -> transforms.Compose:
+def build_eval_transform(
+    image_size: int = 224, *, resize_size=None, mean=IMAGENET_MEAN, std=IMAGENET_STD,
+    interpolation=transforms.InterpolationMode.BILINEAR, antialias=True,
+) -> transforms.Compose:
     """验证/测试集：使用确定性预处理，保证指标可重复。"""
-    resize_size = round(image_size / 0.875)
+    resize_size = round(image_size / 0.875) if resize_size is None else resize_size
     return transforms.Compose(
         [
-            transforms.Resize(resize_size),
+            transforms.Resize(resize_size, interpolation=interpolation, antialias=antialias),
             transforms.CenterCrop(image_size),
             transforms.ToTensor(),
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+            transforms.Normalize(mean, std),
         ]
     )
+
+
+def preprocessing_from_weights(weights) -> dict:
+    """保存预训练权重的输入约定，测试时无需下载权重即可复现。"""
+    preset = weights.transforms()
+    return {
+        "image_size": preset.crop_size[0],
+        "resize_size": preset.resize_size[0],
+        "mean": list(preset.mean),
+        "std": list(preset.std),
+        "interpolation": preset.interpolation.value,
+        "antialias": preset.antialias,
+    }
+
+
+def build_classification_transforms(preprocessing: dict):
+    """训练、验证和独立测试共用同一模型的尺寸及归一化配置。"""
+    options = dict(preprocessing)
+    options["interpolation"] = transforms.InterpolationMode(options["interpolation"])
+    evaluation = build_eval_transform(**options)
+    options.pop("resize_size")
+    return build_train_transform(**options), evaluation
 
 
 def file_sha256(path: str | Path) -> str:
@@ -285,6 +314,7 @@ def build_dataloaders(
     test_ratio: float = 0.1,
     seed: int = 42,
     image_size: int = 224,
+    preprocessing: Optional[dict] = None,
 ) -> DataBundle:
     """从任意“图片目录 + 标签解析函数”建立三组 DataLoader。"""
     records = discover_labeled_images(image_root, label_parser)
@@ -301,20 +331,24 @@ def build_dataloaders(
         seed=seed,
     )
 
+    train_transform, eval_transform = (
+        build_classification_transforms(preprocessing) if preprocessing is not None
+        else (build_train_transform(image_size), build_eval_transform(image_size))
+    )
     train_dataset = ImageListDataset(
         train_records,
         class_to_idx,
-        transform=build_train_transform(image_size),
+        transform=train_transform,
     )
     val_dataset = ImageListDataset(
         val_records,
         class_to_idx,
-        transform=build_eval_transform(image_size),
+        transform=eval_transform,
     )
     test_dataset = ImageListDataset(
         test_records,
         class_to_idx,
-        transform=build_eval_transform(image_size),
+        transform=eval_transform,
     )
 
     common_loader_options = {
