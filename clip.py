@@ -58,10 +58,6 @@ class CLIPAlignmentBlock(nn.Module):
 
         return (loss_i2t + loss_t2i) / 2
     def clamp_logit_scale_(self):
-        """
-        在 optimizer.step() 后调用。
-        将缩放系数限制到不超过 100，避免训练时无限增大。
-        """
         self.logit_scale.clamp_(max=math.log(100.0))
 
     def forward(
